@@ -143,54 +143,68 @@ bot = commands.Bot(command_prefix="!", intents=intents, case_insensitive=True)
 # inv
 import requests
 from collections import Counter
-import time  # for response time
+import time
 
 def safe_int(value):
     try:
         return int(value)
     except (TypeError, ValueError):
-        return 0
+        return None
 
-@bot.command(name="inv")
-async def inventory_command(ctx):
-    start_time = time.perf_counter()
-    command_sent_time = ctx.message.created_at.strftime("%Y-%m-%d %H:%M:%S")
+def safe_str(value, default="N/A"):
+    if value is None:
+        return default
+    return str(value)
 
-    config = load_config_file()
-    player_id = config.get("PlayerID")
-    if not player_id:
-        await ctx.send("Player ID is not configured.")
-        return
+async def get_username(user_id=None, username=None):
+    """
+    Returns (username, user_id).
+    If username is provided, fetch its user_id using GET.
+    If only user_id is provided, fetch username.
+    """
+    if username:
+        try:
+            resp = requests.get(
+                f"https://api.roblox.com/users/get-by-username?username={username}",
+                timeout=5
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("Username", "N/A"), str(data.get("Id", "N/A"))
+        except Exception:
+            return username, "N/A"
+    elif user_id:
+        try:
+            resp = requests.get(f"https://users.roblox.com/v1/users/{user_id}", timeout=5)
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("name", "N/A"), str(data.get("id", "N/A"))
+        except Exception:
+            return "N/A", str(user_id)
+    return "N/A", "N/A"
 
-    try:
-        inventory = fetch_inventory(player_id)
-    except Exception as e:
-        await ctx.send("Failed to fetch inventory.")
-        print(e)
-        return
-
-    if not inventory:
-        await ctx.send("Inventory is empty.")
-        return
-
-    counts = Counter([item["assetId"] for item in inventory])
-    unique_items = {item["assetId"]: item for item in inventory}
+async def fetch_annotated_inventory(player_id):
+    inventory = fetch_inventory(player_id)
+    counts = Counter([item.get("assetId") for item in inventory if item.get("assetId") is not None])
+    unique_items = {item.get("assetId"): item for item in inventory if item.get("assetId") is not None}
 
     annotated_inventory = []
-
     for asset_id, item in unique_items.items():
         try:
-            resp = requests.get(f"https://rolimons.reklaw.dev/api/item?id={asset_id}").json()
-            data = resp.get("data", {})
+            resp = requests.get(f"https://rolimons.reklaw.dev/api/item?id={asset_id}", timeout=5)
+            resp.raise_for_status()
+            data = resp.json().get("data", {})
             rap = safe_int(data.get("rap"))
-            value = safe_int(data.get("value") or rap)
-            acronym = data.get("acronym", "N/A")
-            name = item["name"] or "Unknown Item"
-            name = name[:40]  # truncate for table
+            if rap is None or rap < 500:
+                continue
+            value_raw = data.get("value")
+            value = safe_int(value_raw) if value_raw is not None else None
+            acronym = safe_str(data.get("acronym"))
+            name = safe_str(item.get("name"), "Unknown Item")[:40]
             link = f"https://www.rolimons.com/item/{asset_id}"
-            count = counts[asset_id]
-            total_value = value * count
-            total_rap = rap * count
+            count = safe_int(counts.get(asset_id, 1)) or 1
+            total_value = value * count if value is not None else None
+            total_rap = rap * count if rap is not None else 0
 
             annotated_inventory.append({
                 "name": name,
@@ -203,32 +217,62 @@ async def inventory_command(ctx):
                 "total_rap": total_rap
             })
         except Exception as e:
-            print(f"Error fetching data for {item['name']}: {e}")
+            print(f"Error fetching data for {safe_str(item.get('name'))}: {e}")
             continue
 
-    annotated_inventory.sort(key=lambda x: x["total_value"], reverse=True)
+    annotated_inventory.sort(key=lambda x: (x["rap"] if x["rap"] is not None else 0), reverse=True)
+    return annotated_inventory
 
-    # Spreadsheet-style text
+@bot.command(name="inv")
+async def inventory_command(ctx, roblox_input: str = None):
+    """
+    !inv [roblox username or id]
+    If blank, defaults to config.json ID.
+    """
+    start_time = time.perf_counter()
+    command_sent_time = ctx.message.created_at.strftime("%Y-%m-%d %H:%M:%S")
+    config = load_config_file()
+    default_id = config.get("PlayerID")
+    username_input = None
+
+    # Determine input type
+    if roblox_input:
+        if roblox_input.isdigit():
+            user_id = roblox_input
+        else:
+            username_input = roblox_input
+            user_id = None
+    else:
+        user_id = default_id
+        if not user_id:
+            await ctx.send("No Roblox ID or username provided, and no default PlayerID in config.")
+            return
+
+    # Fetch username and ensure user_id is set
+    username, user_id = await get_username(user_id=user_id, username=username_input)
+
+    annotated_inventory = await fetch_annotated_inventory(user_id)
+
     header = f"{'Name':40} {'Count':>5} {'RAP':>10} {'Value':>10} {'Acronym':>8} {'Link'}"
-    lines = [f"Command sent: {command_sent_time}", header]
+    lines = [f"User: {username} (ID: {user_id}) | Command sent: {command_sent_time}", header]
     lines.append("-" * (len(header) + 20))
 
     total_combined_rap = 0
     total_combined_value = 0
 
     for item in annotated_inventory:
-        lines.append(f"{item['name']:40} {item['count']:>5} {item['rap']:>10} {item['value']:>10} {item['acronym']:>8} {item['link']}")
-        total_combined_rap += item["total_rap"]
-        total_combined_value += item["total_value"]
+        value_display = str(item['value']) if item['value'] is not None else "N/A"
+        rap_display = str(item['rap']) if item['rap'] is not None else "N/A"
+        lines.append(f"{item['name']:40} {item['count']:>5} {rap_display:>10} {value_display:>10} {item['acronym']:>8} {item['link']}")
+        total_combined_rap += item['total_rap']
+        total_combined_value += item['total_value'] if item['total_value'] is not None else 0
 
     lines.append("-" * (len(header) + 20))
     lines.append(f"{'TOTAL':40} {'':>5} {total_combined_rap:>10} {total_combined_value:>10}")
 
-    end_time = time.perf_counter()
-    elapsed_time = end_time - start_time
+    elapsed_time = time.perf_counter() - start_time
     lines.append(f"\nResponse generated in {elapsed_time:.2f} seconds.")
 
-    # Send in chunks if necessary
     message = ""
     for line in lines:
         if len(message) + len(line) + 1 > 1990:
@@ -238,6 +282,8 @@ async def inventory_command(ctx):
 
     if message:
         await ctx.send(f"```\n{message}```")
+
+
 
 
 #NFT command
