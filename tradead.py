@@ -17,8 +17,8 @@ import requests
 from datetime import datetime, timedelta
 import random
 import asyncio
-import time
 from collections import Counter
+import time
 
 CONFIG_FILE = "config.json"
 
@@ -141,9 +141,6 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents, case_insensitive=True)
 
 # inv
-import requests
-from collections import Counter
-import time
 
 def safe_int(value):
     try:
@@ -283,7 +280,79 @@ async def inventory_command(ctx, roblox_input: str = None):
     if message:
         await ctx.send(f"```\n{message}```")
 
+# profile
+@bot.command(name="profile")
+async def profile_command(ctx, roblox_input: str):
+    """
+    !profile [roblox username or numeric ID]
+    Returns Roblox username, ID, Rolimons link, total RAP and total Value in an embed.
+    """
+    import discord
+    start_time = time.perf_counter()
+    command_sent_time = ctx.message.created_at.strftime("%Y-%m-%d %H:%M:%S")
 
+    username = None
+    user_id = None
+
+    # Determine if input is numeric (ID)
+    if roblox_input.isdigit():
+        user_id = roblox_input
+        try:
+            resp = requests.get(f"https://users.roblox.com/v1/users/{user_id}", timeout=5)
+            resp.raise_for_status()
+            data = resp.json()
+            username = data.get("name", "N/A")
+        except Exception:
+            await ctx.send(f"Could not find Roblox user with ID: {user_id}")
+            return
+    else:
+        # Lookup username using POST API
+        try:
+            resp = requests.post(
+                "https://users.roblox.com/v1/usernames/users",
+                json={"usernames": [roblox_input], "excludeBannedUsers": True},
+                timeout=5
+            )
+            resp.raise_for_status()
+            data = resp.json().get("data", [])
+            if not data:
+                await ctx.send(f"Could not find Roblox user: {roblox_input}")
+                return
+            user_data = data[0]
+            username = user_data.get("name", "N/A")
+            user_id = str(user_data.get("id", "N/A"))
+        except Exception:
+            await ctx.send(f"Could not find Roblox user: {roblox_input}")
+            return
+
+    if user_id in (None, "N/A"):
+        await ctx.send(f"Could not resolve user ID for: {roblox_input}")
+        return
+
+    # Fetch inventory
+    annotated_inventory = await fetch_annotated_inventory(user_id)
+
+    total_rap = 0
+    total_value = 0
+    for item in annotated_inventory:
+        total_rap += item["total_rap"]
+        total_value += item["total_value"] if item["total_value"] is not None else item["total_rap"]
+
+    rolimons_link = f"https://www.rolimons.com/player/{user_id}"
+
+    embed = discord.Embed(
+        title=f"Profile for {username} (ID: {user_id})",
+        color=0x00ff00
+    )
+    embed.add_field(name="Command Sent", value=command_sent_time, inline=False)
+    embed.add_field(name="Total RAP", value=str(total_rap), inline=True)
+    embed.add_field(name="Total Value", value=str(total_value), inline=True)
+    embed.add_field(name="Rolimons Link", value=rolimons_link, inline=False)
+
+    elapsed_time = time.perf_counter() - start_time
+    embed.set_footer(text=f"Response generated in {elapsed_time:.2f} seconds")
+
+    await ctx.send(embed=embed)
 
 
 #NFT command
