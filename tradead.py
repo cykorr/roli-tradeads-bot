@@ -17,6 +17,8 @@ import requests
 from datetime import datetime, timedelta
 import random
 import asyncio
+import time
+from collections import Counter
 
 CONFIG_FILE = "config.json"
 
@@ -139,28 +141,103 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents, case_insensitive=True)
 
 # inv
+import requests
+from collections import Counter
+import time  # for response time
+
+def safe_int(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
 @bot.command(name="inv")
 async def inventory_command(ctx):
+    start_time = time.perf_counter()
+    command_sent_time = ctx.message.created_at.strftime("%Y-%m-%d %H:%M:%S")
+
     config = load_config_file()
     player_id = config.get("PlayerID")
-
     if not player_id:
         await ctx.send("Player ID is not configured.")
         return
 
     try:
         inventory = fetch_inventory(player_id)
-
-        msg = "**Current Inventory:**\n"
-        for item in inventory:
-            roli = f"https://www.rolimons.com/item/{item['assetId']}"
-            msg += f"• **{item['name']}** — {roli}\n"
-
-        await ctx.send(msg)
-
     except Exception as e:
         await ctx.send("Failed to fetch inventory.")
         print(e)
+        return
+
+    if not inventory:
+        await ctx.send("Inventory is empty.")
+        return
+
+    counts = Counter([item["assetId"] for item in inventory])
+    unique_items = {item["assetId"]: item for item in inventory}
+
+    annotated_inventory = []
+
+    for asset_id, item in unique_items.items():
+        try:
+            resp = requests.get(f"https://rolimons.reklaw.dev/api/item?id={asset_id}").json()
+            data = resp.get("data", {})
+            rap = safe_int(data.get("rap"))
+            value = safe_int(data.get("value") or rap)
+            acronym = data.get("acronym", "N/A")
+            name = item["name"] or "Unknown Item"
+            name = name[:40]  # truncate for table
+            link = f"https://www.rolimons.com/item/{asset_id}"
+            count = counts[asset_id]
+            total_value = value * count
+            total_rap = rap * count
+
+            annotated_inventory.append({
+                "name": name,
+                "link": link,
+                "rap": rap,
+                "value": value,
+                "acronym": acronym,
+                "count": count,
+                "total_value": total_value,
+                "total_rap": total_rap
+            })
+        except Exception as e:
+            print(f"Error fetching data for {item['name']}: {e}")
+            continue
+
+    annotated_inventory.sort(key=lambda x: x["total_value"], reverse=True)
+
+    # Spreadsheet-style text
+    header = f"{'Name':40} {'Count':>5} {'RAP':>10} {'Value':>10} {'Acronym':>8} {'Link'}"
+    lines = [f"Command sent: {command_sent_time}", header]
+    lines.append("-" * (len(header) + 20))
+
+    total_combined_rap = 0
+    total_combined_value = 0
+
+    for item in annotated_inventory:
+        lines.append(f"{item['name']:40} {item['count']:>5} {item['rap']:>10} {item['value']:>10} {item['acronym']:>8} {item['link']}")
+        total_combined_rap += item["total_rap"]
+        total_combined_value += item["total_value"]
+
+    lines.append("-" * (len(header) + 20))
+    lines.append(f"{'TOTAL':40} {'':>5} {total_combined_rap:>10} {total_combined_value:>10}")
+
+    end_time = time.perf_counter()
+    elapsed_time = end_time - start_time
+    lines.append(f"\nResponse generated in {elapsed_time:.2f} seconds.")
+
+    # Send in chunks if necessary
+    message = ""
+    for line in lines:
+        if len(message) + len(line) + 1 > 1990:
+            await ctx.send(f"```\n{message}```")
+            message = ""
+        message += line + "\n"
+
+    if message:
+        await ctx.send(f"```\n{message}```")
 
 
 #NFT command
