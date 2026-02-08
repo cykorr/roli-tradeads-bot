@@ -14,14 +14,22 @@ import discord
 from discord.ext import commands
 import json
 import requests
+import time
 from datetime import datetime, timedelta
 import random
 import asyncio
 from collections import Counter
-import time
+import subprocess
+import threading
 
 CONFIG_FILE = "config.json"
 
+
+def run_inventory_check():
+    while True:
+        subprocess.run(["python3", "inventory-check.py"])
+        time.sleep(61)
+        
 def load_config_file():
     with open(CONFIG_FILE, "r") as f:
         return json.load(f)
