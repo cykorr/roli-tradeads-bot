@@ -9,11 +9,12 @@ Created on Wed Feb  4 17:27:47 2026
 import requests
 import time
 from datetime import datetime, timezone
+import os
 
 # ================= CONFIG =================
 
 USER_ID = 363042553
-WEBHOOK_URL = secrets.INVENTORY_WEBHOOK
+WEBHOOK_URL = os.environ.get('INVENTORY_WEBHOOK', 'https://discord.com/api/webhooks/default')
 CHECK_INTERVAL = 61
 
 HEADERS = {
@@ -27,6 +28,15 @@ ITEM_CACHE_URL = "https://www.rolimons.com/itemapi/itemdetails"
 # ================= GLOBAL ITEM CACHE =================
 
 ITEM_CACHE = {}
+
+def update_last_run_time():
+    """Write current timestamp to file for web display"""
+    try:
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        with open('last_run.txt', 'w') as f:
+            f.write(timestamp)
+    except Exception as e:
+        print(f"Error updating last run time: {e}")
 
 def load_item_cache():
     global ITEM_CACHE
@@ -112,6 +122,9 @@ print("Rolimons inventory watcher started.")
 # Load item cache ONCE
 load_item_cache()
 
+# Update last run timestamp
+update_last_run_time()
+
 # Initial snapshot
 previous = fetch_player_assets()
 
@@ -121,6 +134,9 @@ send_discord("Initial inventory :", previous)
 # Watch loop
 while True:
     try:
+        # Update last run timestamp on each iteration
+        update_last_run_time()
+        
         current = fetch_player_assets()
 
         added = {u: i for u, i in current.items() if u not in previous}
