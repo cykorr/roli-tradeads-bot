@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 # ================= CONFIG =================
 
 USER_ID = 363042553
-WEBHOOK_URL = "NULL"
+WEBHOOK_URL = secrets.INVENTORY_WEBHOOK
 CHECK_INTERVAL = 61
 
 HEADERS = {
