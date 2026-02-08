@@ -1,0 +1,53 @@
+{
+    "TOKEN": "NULL",
+    "RolimonsToken": "NULL",
+    "PlayerID": 363042553,
+    "DiscordChannel": 1464009457854971925,
+    "AutoPick": "true",
+    "DemandOnly": "false",
+    "Top4": "false",
+    "Time": 1440,
+    "MinValue": 0,
+    "Robux": 0,
+    "NotForTrade": [],
+    "OfferedItems": [],
+    "RequestedItems": [],
+    "LastInventory": [
+        92838656,
+        143610127,
+        13120962483,
+        59912248562,
+        59986267084,
+        60263036956,
+        61796098230,
+        231994629474,
+        232341676818,
+        232805890549,
+        233144125534,
+        233530009269,
+        240075480002
+    ],
+    "Tags": [
+        "upgrade",
+        "downgrade",
+        "demand",
+        "rap"
+    ],
+    "default": [
+		"upgrade",
+		"downgrade",
+		"demand",
+		"rap"
+    ],
+    "Presets": {
+        "default": [
+            "upgrade",
+            "downgrade",
+            "demand",
+            "rap"
+        ],
+        "adds": [
+            "adds"
+        ]
+    }
+}
